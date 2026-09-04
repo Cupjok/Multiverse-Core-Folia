@@ -83,6 +83,13 @@ tasks.register('prepareSource', Sync) {
 }
 
 shadowJar {
+    // BSD 3-Clause requires binary redistributions to reproduce the original copyright notice,
+    // so ship Multiverse-Core's licence inside the jar under a name no shaded dependency claims.
+    from(rootProject.file('LICENSE.md')) {
+        into 'META-INF'
+        rename { 'LICENSE-Multiverse-Core.md' }
+    }
+
     relocate 'co.aikar', 'org.mvplugins.multiverse.external.acf'
     relocate 'com.dumptruckman.minecraft.util.Logging', 'org.mvplugins.multiverse.core.utils.CoreLogging'
     relocate 'com.dumptruckman.minecraft.util.DebugLog', 'org.mvplugins.multiverse.core.utils.DebugFileLogger'
