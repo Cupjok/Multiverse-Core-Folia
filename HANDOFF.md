@@ -13,7 +13,9 @@ The port is **done and tested**. World create / load / unload / clone / regen / 
 world settings, game rules, world borders, the confirm queue, and cross-world teleportation all
 work with **zero thread violations**. 181 unit tests pass.
 
-The main thing left is **testing with a real player connected** — see [TODO.md](TODO.md) §1.
+`/mv tp` has been confirmed working with a real player. The main thing left is exercising the
+**remaining player-facing paths** — spawn, portals, respawn, gamemode enforcement — see
+[TODO.md](TODO.md) §1.
 
 ---
 
@@ -87,8 +89,8 @@ Two server-specific traps worth repeating:
 
 ## 5. Suggested next steps, in order
 
-1. **Player testing** ([TODO.md](TODO.md) §1) — the biggest remaining gap. Join the test server and
-   walk `/mv tp`, `/mv spawn`, portals, respawn, gamemode enforcement and `--remove-players`.
+1. **Remaining player testing** ([TODO.md](TODO.md) §1) — `/mv tp` is confirmed; still to walk are
+   `/mv spawn`, portals, respawn, gamemode enforcement and `--remove-players`.
 2. **Paper/Spigot regression check** — confirm the Folia branches stay inert off Folia.
 3. **Plain Folia check** — the fallbacks target it but it is untested.
 4. Address the `BlockSafety` skip-vs-wait trade-off ([TODO.md](TODO.md) §2) if it proves annoying.

@@ -5,14 +5,15 @@ follows is honest residual risk, not blocking defects.
 
 ---
 
-## 1. Not yet tested with a real player ⚠️
+## 1. Player-facing paths — partly confirmed ⚠️
 
-**This is the largest gap.** No human player connected to the test server during this work, so
-these paths were verified only indirectly:
+`/mv tp` was **confirmed working with a real player** by the maintainer on 2026-09-04, on the
+Canvas 26.2 test server. The remaining items below were still only verified indirectly (via a
+probe plugin driving the API from real region and async threads), because no player was connected
+during the port itself.
 
-- [ ] `/mv tp` and `/mv spawn` as a player (the code path *was* exercised on a non-player entity
-      via a probe plugin — cross-world teleport succeeded with no stall — but a `Player` also
-      carries a connection, a queue entry and gamemode enforcement).
+- [x] `/mv tp` as a real player — **confirmed working**.
+- [ ] `/mv spawn` as a player.
 - [ ] Gamemode / flight enforcement on world change (`MVPlayerListener#handleGameModeAndFlight`,
       now on the entity scheduler).
 - [ ] Player respawn handling, including anchor and bed respawn.

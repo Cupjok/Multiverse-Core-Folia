@@ -118,11 +118,13 @@ missed tick deadlines after every step.
 | Confirm queue + expiry timer | ✅ OTP validated, expiry fired on schedule |
 | Cross-world block safety from async | ✅ correct result for another world's region |
 | Cross-world entity teleport | ✅ entity arrived in target world, no stall |
+| `/mv tp` as a real player | ✅ confirmed by the maintainer, 2026-09-04 |
 | Graceful shutdown | ✅ |
 | Unit tests | ✅ 181 passed |
 
 **Total Folia thread violations across the full session log: 0.**
 
-Teleportation was verified with a purpose-built probe plugin that drove Multiverse's API from real
-region and async threads, since console commands cannot teleport and no player was available. See
-[TODO.md](TODO.md) for what that does *not* cover.
+Teleportation was first verified with a purpose-built probe plugin that drove Multiverse's API from
+real region and async threads, since console commands cannot teleport and no player was available
+during the port. `/mv tp` has since been confirmed working with a real player by the maintainer.
+See [TODO.md](TODO.md) for the player-facing paths that remain unverified.
