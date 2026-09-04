@@ -1,5 +1,8 @@
 package org.mvplugins.multiverse.core.teleportation;
 
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
+
 import com.dumptruckman.minecraft.util.Logging;
 import io.vavr.control.Option;
 import jakarta.inject.Inject;
@@ -15,6 +18,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jvnet.hk2.annotations.Service;
 import org.mvplugins.multiverse.core.config.CoreConfig;
+import org.mvplugins.multiverse.core.utils.scheduler.MVScheduler;
 
 /**
  * Used to check get or find block/location-related information.
@@ -22,13 +26,56 @@ import org.mvplugins.multiverse.core.config.CoreConfig;
 @Service
 public final class BlockSafety {
 
+    private static final long REGION_READ_TIMEOUT_SECONDS = 10L;
+
     private final CoreConfig config;
     private final LocationManipulation locationManipulation;
+    private final MVScheduler scheduler;
 
     @Inject
-    BlockSafety(@NotNull CoreConfig config, @NotNull LocationManipulation locationManipulation) {
+    BlockSafety(@NotNull CoreConfig config, @NotNull LocationManipulation locationManipulation,
+                @NotNull MVScheduler scheduler) {
         this.config = config;
         this.locationManipulation = locationManipulation;
+        this.scheduler = scheduler;
+    }
+
+    /**
+     * Reads world state at a location from a thread that is allowed to.
+     *
+     * <p>A regionised server only lets a thread read the blocks of the region it owns, so a
+     * safety check for somewhere else has to be handed to that region and waited for. Two cases
+     * cannot wait: the starting server, whose regions are not running yet, and the global region,
+     * which the rest of the server depends on to keep moving. Those fall back instead, which
+     * means the check is skipped rather than the server being stalled or crashed.</p>
+     *
+     * @param location  The location being inspected.
+     * @param reader    The check to run.
+     * @param fallback  What to answer when the check cannot be run at all.
+     * @param <T>       The type of the answer.
+     * @return The result of the check, or the fallback.
+     */
+    private <T> T readAt(@NotNull Location location, @NotNull Supplier<T> reader, @NotNull Supplier<T> fallback) {
+        if (scheduler.canReadAt(location)) {
+            return reader.get();
+        }
+        if (scheduler.isStartupPhase() || scheduler.isTickThread()) {
+            // Waiting here would stall a thread the server needs to keep ticking, and the region
+            // that owns this location may well be waiting on the very pool this thread came from.
+            Logging.fine("Skipping block safety check at %s: this thread may not read that world, "
+                    + "and may not wait for one that can.", locationManipulation.strCoordsRaw(location));
+            return fallback.get();
+        }
+        try {
+            return scheduler.supplyAtLocation(location, reader).get(REGION_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return fallback.get();
+        } catch (Exception e) {
+            Logging.warning("Block safety check at %s failed: %s",
+                    locationManipulation.strCoordsRaw(location), e.getMessage());
+            return fallback.get();
+        }
     }
 
     /**
@@ -120,7 +167,7 @@ public final class BlockSafety {
      * @return Whether the player can spawn safely at the given {@link Location}
      */
     public boolean canSpawnAtLocationSafely(@NotNull Location location) {
-        return canSpawnAtBlockSafely(location.getBlock());
+        return readAt(location, () -> canSpawnAtBlockSafely(location.getBlock()), () -> true);
     }
 
     /**
@@ -213,7 +260,10 @@ public final class BlockSafety {
      * @return The safe location if found, otherwise null.
      */
     public @Nullable Location findSafeSpawnLocation(@NotNull Location location, int horizontalRange, int verticalRange) {
-        Block safeBlock = findSafeSpawnBlock(location.getBlock(), horizontalRange, verticalRange);
+        Block safeBlock = readAt(
+                location,
+                () -> findSafeSpawnBlock(location.getBlock(), horizontalRange, verticalRange),
+                () -> location.getBlock());
         if (safeBlock == null) {
             return null;
         }

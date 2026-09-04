@@ -15,6 +15,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jvnet.hk2.annotations.Service;
 
 import org.mvplugins.multiverse.core.command.LegacyAliasCommand;
+import org.mvplugins.multiverse.core.utils.WorldTickDeferrer;
 import org.mvplugins.multiverse.core.command.MVCommandIssuer;
 import org.mvplugins.multiverse.core.command.MVCommandManager;
 import org.mvplugins.multiverse.core.command.flag.CommandFlag;
@@ -32,11 +33,14 @@ import org.mvplugins.multiverse.core.world.options.ImportWorldOptions;
 class ImportCommand extends CoreCommand {
 
     private final WorldManager worldManager;
+    private final WorldTickDeferrer worldTickDeferrer;
     private final ImportCommand.Flags flags;
 
     @Inject
-    ImportCommand(@NotNull WorldManager worldManager, @NotNull Flags flags) {
+    ImportCommand(@NotNull WorldManager worldManager, @NotNull WorldTickDeferrer worldTickDeferrer,
+            @NotNull Flags flags) {
         this.worldManager = worldManager;
+        this.worldTickDeferrer = worldTickDeferrer;
         this.flags = flags;
     }
 
@@ -66,21 +70,21 @@ class ImportCommand extends CoreCommand {
         ParsedCommandFlags parsedFlags = flags.parse(flagArray);
 
         issuer.sendInfo(MVCorei18n.IMPORT_IMPORTING, Replace.WORLD.with(worldName));
-        worldManager.importWorld(ImportWorldOptions.worldName(worldName)
-                        .biome(parsedFlags.flagValue(flags.biome, ""))
-                        .environment(environment)
-                        .generator(parsedFlags.flagValue(flags.generator))
-                        .generatorSettings(parsedFlags.flagValue(flags.generatorSettings, ""))
-                        .useSpawnAdjust(!parsedFlags.hasFlag(flags.noAdjustSpawn))
-                        .doFolderCheck(!parsedFlags.hasFlag(flags.skipFolderCheck)))
-                .onSuccess(newWorld -> {
-                    Logging.fine("World import success: " + newWorld);
-                    issuer.sendInfo(MVCorei18n.IMPORT_SUCCESS, Replace.WORLD.with(newWorld.getName()));
-                })
-                .onFailure(failure -> {
-                    Logging.fine("World import failure: " + failure);
-                    issuer.sendError(failure.getFailureMessage());
-                });
+        worldTickDeferrer.deferWorldTick(() -> worldManager.importWorld(ImportWorldOptions.worldName(worldName)
+                            .biome(parsedFlags.flagValue(flags.biome, ""))
+                            .environment(environment)
+                            .generator(parsedFlags.flagValue(flags.generator))
+                            .generatorSettings(parsedFlags.flagValue(flags.generatorSettings, ""))
+                            .useSpawnAdjust(!parsedFlags.hasFlag(flags.noAdjustSpawn))
+                            .doFolderCheck(!parsedFlags.hasFlag(flags.skipFolderCheck)))
+                    .onSuccess(newWorld -> {
+                        Logging.fine("World import success: " + newWorld);
+                        issuer.sendInfo(MVCorei18n.IMPORT_SUCCESS, Replace.WORLD.with(newWorld.getName()));
+                    })
+                    .onFailure(failure -> {
+                        Logging.fine("World import failure: " + failure);
+                        issuer.sendError(failure.getFailureMessage());
+                    }));
     }
 
     @Service
@@ -123,8 +127,9 @@ class ImportCommand extends CoreCommand {
     @Service
     private static final class LegacyAlias extends ImportCommand implements LegacyAliasCommand {
         @Inject
-        LegacyAlias(@NotNull WorldManager worldManager, @NotNull Flags flags) {
-            super(worldManager, flags);
+        LegacyAlias(@NotNull WorldManager worldManager, @NotNull WorldTickDeferrer worldTickDeferrer,
+                @NotNull Flags flags) {
+            super(worldManager, worldTickDeferrer, flags);
         }
 
         @Override

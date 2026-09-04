@@ -2,50 +2,110 @@
 <img src="config/multiverse-banner.png" alt="Multiverse Logo">
 </p>
 
-[![Modrinth](https://cdn.jsdelivr.net/npm/@intergrav/devins-badges@3/assets/cozy/available/modrinth_vector.svg)](https://modrinth.com/plugin/multiverse-core)
-[![Hangar](https://cdn.jsdelivr.net/npm/@intergrav/devins-badges@3/assets/cozy/available/hangar_vector.svg)](https://hangar.papermc.io/Multiverse/Multiverse-Core)
-[![Bukkit](https://raw.githubusercontent.com/intergrav/devins-badges/refs/heads/v3/assets/cozy/available/bukkit_vector.svg)](https://dev.bukkit.org/projects/multiverse-core)
-[![Spigot](https://raw.githubusercontent.com/intergrav/devins-badges/refs/heads/v3/assets/cozy/available/spigot_vector.svg)](https://www.spigotmc.org/resources/multiverse-core.390/)
+# Multiverse-Core-Folia
 
-[![Release](https://img.shields.io/github/v/release/multiverse/multiverse-core)](https://github.com/Multiverse/Multiverse-Core/releases/latest)
-[![Pre-Release](https://img.shields.io/github/v/release/multiverse/multiverse-core?include_prereleases&label=Pre-release)](https://github.com/Multiverse/Multiverse-Core/releases)
-[![Discord](https://img.shields.io/discord/325459248047980545?label=Discord&logo=discord)](https://discord.gg/NZtfKky)
-[![Donate on Github Sponsor](https://img.shields.io/badge/Github%20Sponsor-Donate-pink?logo=githubsponsors)](https://github.com/sponsors/Multiverse)
-[![Donate on Open Collective](https://img.shields.io/badge/Open%20Collective-Donate-blue?style=flat&logo=opencollective)](https://opencollective.com/multiverse-plugins)
+**An unofficial, community-maintained fork of [Multiverse-Core](https://github.com/Multiverse/Multiverse-Core) with support for [Folia](https://papermc.io/software/folia)-style regionised servers.**
 
-# About
+> ### ⚠️ Unofficial fork — please read
+>
+> This project is **not official**, and is **not affiliated with, endorsed by, or supported by
+> The Multiverse Team**. It is an independent fork maintained by [@Cupjok](https://github.com/Cupjok).
+>
+> **Do not report issues with this fork to the Multiverse project.** They did not write this code
+> and cannot support it. Please open an issue
+> [here](https://github.com/Cupjok/Multiverse-Core-Folia/issues) instead.
+>
+> All credit for Multiverse itself belongs to **The Multiverse Team** and its contributors. If you
+> run a regular Paper or Spigot server, use the
+> [official Multiverse-Core](https://github.com/Multiverse/Multiverse-Core) — you do not need this fork.
 
-[Multiverse](https://modrinth.com/plugin/multiverse-core) was created at the dawn of Bukkit multiworld support. It has since then grown into a **complete world management solution!** Multiverse provides the easiest to use world management solution for your Minecraft server, big or small, and with great addons like [Portals](https://dev.bukkit.org/projects/multiverse-portals) and [NetherPortals](https://dev.bukkit.org/projects/multiverse-netherportals/), what's not to love!
+---
 
-Now it's time to create your very own Multiverse server, do check out our [Wiki](https://github.com/Multiverse/Multiverse-Core/wiki) and [Usage Guide](https://github.com/Multiverse/Multiverse-Core/wiki/Basics) to get started. Feel free to hop onto our [Discord](https://discord.gg/NZtfKky) if you have any question or just want to have a chat with us!
+## Why this fork exists
 
-## Amazing sub-modules available:
+Folia replaces the single main server thread with **independently ticking regions**. Multiverse-Core
+was written for the traditional threading model, so on Folia it refuses to load, and its world
+management and teleportation would be unsafe if it did.
 
-* [Multiverse-NetherPortals](https://github.com/Multiverse/Multiverse-NetherPortals) -> Have separate nether and end worlds for each of your overworlds!
-* [Multiverse-Portals](https://github.com/Multiverse/Multiverse-Portals) -> Make custom portals to go to any destination!
-* [Multiverse-Inventories](https://github.com/Multiverse/Multiverse-Inventories) -> Have separated players stats and inventories per world or per group of worlds.
-* [Multiverse-SignPortals](https://github.com/Multiverse/Multiverse-SignPortals) -> Signs as teleporters!
+This fork adapts Multiverse-Core to that model: every operation is dispatched to the thread that
+actually owns the state it touches — the global region for worlds and their settings, a region for
+blocks, an entity's own scheduler for that entity, and async threads for work that must wait.
 
-## Usage Guide
+It is a **drop-in replacement**: the plugin name, commands, permissions, configuration and API are
+unchanged from upstream.
 
-We have a cool new website hosting our Wiki: https://mvplugins.org
+## Compatibility
+
+| | |
+|---|---|
+| **Tested on** | Canvas `26.2-931` (Folia fork), Minecraft `26.2`, Java 26 |
+| **Upstream base** | Multiverse-Core `5.8.1-pre.3` |
+| **Server software** | Folia and its forks (Canvas), plus Paper and Spigot |
+| **Java** | 21 or newer |
+
+Non-Folia servers are unaffected: all regionised behaviour is guarded by a runtime check, so on
+Paper and Spigot the plugin behaves exactly as upstream does.
+
+> **Note:** This fork covers **Multiverse-Core only.** The Multiverse addons
+> (NetherPortals, Portals, Inventories, SignPortals) are **not** Folia-compatible and are not part
+> of this project.
+
+## Installation
+
+1. Download the latest jar from [Releases](https://github.com/Cupjok/Multiverse-Core-Folia/releases).
+2. Drop it into your server's `plugins/` folder. If you are migrating, remove any existing
+   `Multiverse-Core` jar first — do not run both.
+3. Restart the server.
+
+Your existing `worlds.yml` and `config.yml` carry over unchanged.
+
+## What was changed
+
+The port centres on a scheduling facade (`MVScheduler`) plus compatibility shims for two APIs that
+behave differently on Folia: world unloading, which can only be done asynchronously, and entity
+teleportation, which must use the server's native async teleport.
+
+For the full engineering write-up — the threading rules, every fix, and what was verified on a live
+Folia server — see **[PROGRESS.md](PROGRESS.md)**. Known gaps are tracked in **[TODO.md](TODO.md)**.
 
 ## Building
-Simply build the source with Gradle:
-```
+
+```bash
 ./gradlew build
 ```
 
-## Contributing
+Requires JDK 21. The jar is written to `build/libs/`.
 
-**Want to help improve Multiverse?** There are several ways you can support and contribute to the project.
-* Take a look at our "Bug: Unconfirmed" issues, where you can find issues that need extra testing and investigation.
-* Want others to love Multiverse too? You can join the [Multiverse Discord community](https://discord.gg/NZtfKky) and help others with issues and setup!
-* A Multiverse guru? You can update our [Wiki](https://github.com/Multiverse/multiverse-web) with your latest tip, tricks and guides! The wiki open for all to edit and improve.
-* Love coding? You could look at ["State: Open to PR"](https://github.com/Multiverse/Multiverse-Core/labels/State%3A%20Open%20to%20PR) and ["Resolution: Accepted"](https://github.com/Multiverse/Multiverse-Core/labels/Resolution%3A%20Accepted) issues. We're always happy to receive bug fixes and feature additions as [pull requests](https://www.freecodecamp.org/news/how-to-make-your-first-pull-request-on-github-3/).
-* If you'd like to make a financial contribution to the project, do consider donating to our [Github Sponsors](https://github.com/sponsors/Multiverse) or [Open Collective](https://opencollective.com/multiverse-plugins)!
+## Documentation
 
-Additionally, we would like to give a big thanks to everyone that has supported Multiverse over the years, as well as those in the years to come. Thank you!
+Multiverse's own usage documentation applies unchanged: [mvplugins.org](https://mvplugins.org).
+
+Contributor and maintainer notes for this fork:
+
+- **[CLAUDE.md](CLAUDE.md)** — architecture, the Folia threading model, and licence obligations
+- **[PROGRESS.md](PROGRESS.md)** — what was changed and what was verified
+- **[TODO.md](TODO.md)** — remaining work and known limitations
+- **[HANDOFF.md](HANDOFF.md)** — how to pick this work up
+
+## Credits
+
+**Multiverse-Core is the work of [The Multiverse Team](https://github.com/Multiverse)** and its
+contributors — dumptruckman, Rigby, fernferret, lithium3141, main--, benwoo1110, Zax71 and many
+others. This fork only adapts their work to Folia; the plugin itself is theirs.
+
+Please support the original project:
+[GitHub Sponsors](https://github.com/sponsors/Multiverse) ·
+[Open Collective](https://opencollective.com/multiverse-plugins) ·
+[Discord](https://discord.gg/NZtfKky)
 
 ## License
-Multiverse-Core is licensed under BSD-3-Clause License. Please see [LICENSE.md](LICENSE.md) for more info.
+
+Multiverse-Core is licensed under the **BSD 3-Clause License**,
+`Copyright (c) 2011, The Multiverse Team. All rights reserved.`
+
+This fork is redistributed under the same licence, and retains the original copyright notices in
+full. See **[LICENSE.md](LICENSE.md)** for the complete text.
+
+In accordance with the third clause of that licence, the name of The Multiverse Team and the names
+of its contributors are **not** used to endorse or promote this fork. Any modifications from
+upstream are the responsibility of this fork's maintainer, not of The Multiverse Team.

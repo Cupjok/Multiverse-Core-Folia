@@ -19,6 +19,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jvnet.hk2.annotations.Service;
 
 import org.mvplugins.multiverse.core.command.LegacyAliasCommand;
+import org.mvplugins.multiverse.core.utils.WorldTickDeferrer;
 import org.mvplugins.multiverse.core.command.MVCommandIssuer;
 import org.mvplugins.multiverse.core.command.flag.CommandFlag;
 import org.mvplugins.multiverse.core.command.flag.CommandFlagsManager;
@@ -44,11 +45,14 @@ import static org.mvplugins.multiverse.core.locale.message.MessageReplacement.re
 class CreateCommand extends CoreCommand {
 
     private final WorldManager worldManager;
+    private final WorldTickDeferrer worldTickDeferrer;
     private final CreateCommand.Flags flags;
 
     @Inject
-    CreateCommand(@NotNull WorldManager worldManager, @NotNull Flags flags) {
+    CreateCommand(@NotNull WorldManager worldManager, @NotNull WorldTickDeferrer worldTickDeferrer,
+            @NotNull Flags flags) {
         this.worldManager = worldManager;
+        this.worldTickDeferrer = worldTickDeferrer;
         this.flags = flags;
     }
 
@@ -82,20 +86,20 @@ class CreateCommand extends CoreCommand {
 
         issuer.sendInfo(MVCorei18n.CREATE_LOADING);
 
-        worldManager.createWorld(CreateWorldOptions.worldName(worldName)
-                        .biome(parsedFlags.flagValue(flags.biome, ""))
-                        .bonusChest(parsedFlags.hasFlag(flags.bonusChest))
-                        .environment(environment)
-                        .forcedSpawnPosition(parsedFlags.flagValue(flags.forceSpawnPosition))
-                        .generator(parsedFlags.flagValue(flags.generator, ""))
-                        .generatorSettings(parsedFlags.flagValue(flags.generatorSettings, ""))
-                        .generateStructures(!parsedFlags.hasFlag(flags.noStructures))
-                        .seed(parsedFlags.flagValue(flags.seed))
-                        .useSpawnAdjust(!parsedFlags.hasFlag(flags.noAdjustSpawn))
-                        .worldPropertyStrings(StringFormatter.parseCSVMap(parsedFlags.flagValue(flags.properties)))
-                        .worldType(parsedFlags.flagValue(flags.worldType, WorldType.NORMAL)))
-                .onSuccess(newWorld -> messageSuccess(issuer, newWorld))
-                .onFailure(failure -> messageFailure(issuer, failure));
+        worldTickDeferrer.deferWorldTick(() -> worldManager.createWorld(CreateWorldOptions.worldName(worldName)
+                            .biome(parsedFlags.flagValue(flags.biome, ""))
+                            .bonusChest(parsedFlags.hasFlag(flags.bonusChest))
+                            .environment(environment)
+                            .forcedSpawnPosition(parsedFlags.flagValue(flags.forceSpawnPosition))
+                            .generator(parsedFlags.flagValue(flags.generator, ""))
+                            .generatorSettings(parsedFlags.flagValue(flags.generatorSettings, ""))
+                            .generateStructures(!parsedFlags.hasFlag(flags.noStructures))
+                            .seed(parsedFlags.flagValue(flags.seed))
+                            .useSpawnAdjust(!parsedFlags.hasFlag(flags.noAdjustSpawn))
+                            .worldPropertyStrings(StringFormatter.parseCSVMap(parsedFlags.flagValue(flags.properties)))
+                            .worldType(parsedFlags.flagValue(flags.worldType, WorldType.NORMAL)))
+                    .onSuccess(newWorld -> messageSuccess(issuer, newWorld))
+                    .onFailure(failure -> messageFailure(issuer, failure)));
     }
 
     private void messageWorldDetails(MVCommandIssuer issuer, String worldName,
@@ -206,8 +210,9 @@ class CreateCommand extends CoreCommand {
     @Service
     private static final class LegacyAlias extends CreateCommand implements LegacyAliasCommand {
         @Inject
-        LegacyAlias(@NotNull WorldManager worldManager, @NotNull Flags flags) {
-            super(worldManager, flags);
+        LegacyAlias(@NotNull WorldManager worldManager, @NotNull WorldTickDeferrer worldTickDeferrer,
+                @NotNull Flags flags) {
+            super(worldManager, worldTickDeferrer, flags);
         }
 
         @Override

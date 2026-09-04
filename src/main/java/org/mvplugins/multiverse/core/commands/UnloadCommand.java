@@ -23,6 +23,7 @@ import org.mvplugins.multiverse.core.destination.DestinationsProvider;
 import org.mvplugins.multiverse.core.destination.core.WorldDestination;
 import org.mvplugins.multiverse.core.locale.MVCorei18n;
 import org.mvplugins.multiverse.core.locale.message.MessageReplacement.Replace;
+import org.mvplugins.multiverse.core.utils.WorldTickDeferrer;
 import org.mvplugins.multiverse.core.utils.result.AsyncAttemptsAggregate;
 import org.mvplugins.multiverse.core.world.LoadedMultiverseWorld;
 import org.mvplugins.multiverse.core.world.WorldManager;
@@ -36,16 +37,19 @@ class UnloadCommand extends CoreCommand {
 
     private final WorldManager worldManager;
     private final PlayerWorldTeleporter playerWorldTeleporter;
+    private final WorldTickDeferrer worldTickDeferrer;
     private final UnloadCommand.Flags flags;
 
     @Inject
     UnloadCommand(
             @NotNull WorldManager worldManager,
             @NotNull PlayerWorldTeleporter playerWorldTeleporter,
+            @NotNull WorldTickDeferrer worldTickDeferrer,
             @NotNull Flags flags
     ) {
         this.worldManager = worldManager;
         this.playerWorldTeleporter = playerWorldTeleporter;
+        this.worldTickDeferrer = worldTickDeferrer;
         this.flags = flags;
     }
 
@@ -74,7 +78,7 @@ class UnloadCommand extends CoreCommand {
                 ? playerWorldTeleporter.transferAllFromWorldToDestination(world, removeToDestination)
                 : AsyncAttemptsAggregate.emptySuccess();
 
-        future.onSuccess(() -> doWorldUnloading(issuer, world, parsedFlags))
+        future.onSuccess(() -> worldTickDeferrer.deferWorldTick(() -> doWorldUnloading(issuer, world, parsedFlags)))
                 .onFailure(() -> issuer.sendError(MVCorei18n.GENERIC_TELEPORTPLAYERS_FAILED));
     }
 
@@ -122,9 +126,10 @@ class UnloadCommand extends CoreCommand {
         LegacyAlias(
                 @NotNull WorldManager worldManager,
                 @NotNull PlayerWorldTeleporter playerWorldTeleporter,
+                @NotNull WorldTickDeferrer worldTickDeferrer,
                 @NotNull Flags flags
         ) {
-            super(worldManager, playerWorldTeleporter, flags);
+            super(worldManager, playerWorldTeleporter, worldTickDeferrer, flags);
         }
 
         @Override

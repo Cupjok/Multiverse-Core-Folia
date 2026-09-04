@@ -37,6 +37,7 @@ import org.mvplugins.multiverse.core.display.parsers.MapContentProvider;
 import org.mvplugins.multiverse.core.locale.MVCorei18n;
 import org.mvplugins.multiverse.core.locale.message.Message;
 import org.mvplugins.multiverse.core.locale.message.MessageReplacement.Replace;
+import org.mvplugins.multiverse.core.utils.scheduler.MVScheduler;
 import org.mvplugins.multiverse.core.world.LoadedMultiverseWorld;
 
 import static org.mvplugins.multiverse.core.locale.message.MessageReplacement.replace;
@@ -45,10 +46,12 @@ import static org.mvplugins.multiverse.core.locale.message.MessageReplacement.re
 class GameruleCommand extends CoreCommand {
 
     private final PageFilterFlags flags;
+    private final MVScheduler scheduler;
 
     @Inject
-    GameruleCommand(@NotNull PageFilterFlags flags) {
+    GameruleCommand(@NotNull PageFilterFlags flags, @NotNull MVScheduler scheduler) {
         this.flags = flags;
+        this.scheduler = scheduler;
     }
 
     @Subcommand("gamerule|rule set")
@@ -71,6 +74,13 @@ class GameruleCommand extends CoreCommand {
             @Syntax("[worlds|*]")
             @Description("{@@mv-core.gamerule.set.world.description}")
             LoadedMultiverseWorld[] worlds) {
+        // Game rules are server-wide state, so they may only be changed on the global region.
+        scheduler.runGlobal(() -> doGameruleSet(issuer, gamerule, gameRuleValue, worlds));
+    }
+
+    @SuppressWarnings("rawtypes,unchecked")
+    private void doGameruleSet(
+            MVCommandIssuer issuer, GameRule gamerule, GameRuleValue gameRuleValue, LoadedMultiverseWorld[] worlds) {
         Object value = gameRuleValue.value();
         boolean success = true;
         for (LoadedMultiverseWorld world : worlds) {
@@ -118,6 +128,12 @@ class GameruleCommand extends CoreCommand {
             @Syntax("[worlds|*]")
             @Description("{@@mv-core.gamerule.reset.world.description}")
             LoadedMultiverseWorld[] worlds) {
+        // Game rules are server-wide state, so they may only be changed on the global region.
+        scheduler.runGlobal(() -> doGameruleReset(issuer, gamerule, worlds));
+    }
+
+    @SuppressWarnings("rawtypes,unchecked")
+    private void doGameruleReset(MVCommandIssuer issuer, GameRule gamerule, LoadedMultiverseWorld[] worlds) {
         AtomicBoolean success = new AtomicBoolean(true);
         Arrays.stream(worlds)
                 .forEach(world -> world.getBukkitWorld()
@@ -209,8 +225,8 @@ class GameruleCommand extends CoreCommand {
     @Service
     private static final class LegacyAlias extends GameruleCommand implements LegacyAliasCommand {
         @Inject
-        LegacyAlias(@NotNull PageFilterFlags flags) {
-            super(flags);
+        LegacyAlias(@NotNull PageFilterFlags flags, @NotNull MVScheduler scheduler) {
+            super(flags, scheduler);
         }
 
         @Override

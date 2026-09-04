@@ -29,6 +29,7 @@ import org.mvplugins.multiverse.core.listeners.CoreListener;
 import org.mvplugins.multiverse.core.inject.PluginServiceLocatorFactory;
 import org.mvplugins.multiverse.core.module.MultiverseModule;
 import org.mvplugins.multiverse.core.utils.StringFormatter;
+import org.mvplugins.multiverse.core.utils.scheduler.MVScheduler;
 import org.mvplugins.multiverse.core.world.WorldManager;
 import org.mvplugins.multiverse.core.world.entity.SpawnCategoryMapper;
 import org.mvplugins.multiverse.core.world.location.NullSpawnLocation;
@@ -115,6 +116,9 @@ public class MultiverseCore extends MultiverseModule {
             loadApiService();
             saveAllConfigs();
             logEnableMessage();
+            // Once the server's schedulers start draining, world work must be handed to them
+            // rather than run inline on whichever thread asked for it.
+            MVScheduler.armStartupCompletion(this);
         }).onFailure(e -> {
             Logging.severe("Failed to multiverse core! Disabling...");
             e.printStackTrace();

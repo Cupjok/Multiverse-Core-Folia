@@ -13,6 +13,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jvnet.hk2.annotations.Service;
 
 import org.mvplugins.multiverse.core.command.LegacyAliasCommand;
+import org.mvplugins.multiverse.core.utils.WorldTickDeferrer;
 import org.mvplugins.multiverse.core.command.MVCommandIssuer;
 import org.mvplugins.multiverse.core.command.flag.CommandFlag;
 import org.mvplugins.multiverse.core.command.flag.CommandFlagsManager;
@@ -30,11 +31,14 @@ import static org.mvplugins.multiverse.core.locale.message.MessageReplacement.re
 class CloneCommand extends CoreCommand {
 
     private final WorldManager worldManager;
+    private final WorldTickDeferrer worldTickDeferrer;
     private final CloneCommand.Flags flags;
 
     @Inject
-    CloneCommand(@NotNull WorldManager worldManager, @NotNull Flags flags) {
+    CloneCommand(@NotNull WorldManager worldManager, @NotNull WorldTickDeferrer worldTickDeferrer,
+            @NotNull Flags flags) {
         this.worldManager = worldManager;
+        this.worldTickDeferrer = worldTickDeferrer;
         this.flags = flags;
     }
 
@@ -68,14 +72,14 @@ class CloneCommand extends CoreCommand {
                 .keepGameRule(!parsedFlags.hasFlag(flags.resetGamerules))
                 .keepWorldBorder(!parsedFlags.hasFlag(flags.resetWorldBorder))
                 .saveBukkitWorld(!parsedFlags.hasFlag(flags.noSave));
-        worldManager.cloneWorld(cloneWorldOptions)
-                .onSuccess(newWorld -> {
-                    Logging.fine("World clone success: " + newWorld);
-                    issuer.sendInfo(MVCorei18n.CLONE_SUCCESS, Replace.WORLD.with(newWorld.getName()));
-                }).onFailure(failure -> {
-                    Logging.fine("World clone failure: " + failure);
-                    issuer.sendError(failure.getFailureMessage());
-                });
+        worldTickDeferrer.deferWorldTick(() -> worldManager.cloneWorld(cloneWorldOptions)
+                    .onSuccess(newWorld -> {
+                        Logging.fine("World clone success: " + newWorld);
+                        issuer.sendInfo(MVCorei18n.CLONE_SUCCESS, Replace.WORLD.with(newWorld.getName()));
+                    }).onFailure(failure -> {
+                        Logging.fine("World clone failure: " + failure);
+                        issuer.sendError(failure.getFailureMessage());
+                    }));
     }
 
     @Service
@@ -108,8 +112,9 @@ class CloneCommand extends CoreCommand {
     @Service
     private final static class LegacyAlias extends CloneCommand implements LegacyAliasCommand {
         @Inject
-        LegacyAlias(@NotNull WorldManager worldManager, @NotNull Flags flags) {
-            super(worldManager, flags);
+        LegacyAlias(@NotNull WorldManager worldManager, @NotNull WorldTickDeferrer worldTickDeferrer,
+                @NotNull Flags flags) {
+            super(worldManager, worldTickDeferrer, flags);
         }
 
         @Override

@@ -10,6 +10,7 @@ import org.bukkit.World;
 import org.jvnet.hk2.annotations.Service;
 import org.mvplugins.multiverse.core.config.handle.StringPropertyHandle;
 import org.mvplugins.multiverse.core.utils.compatibility.WorldBorderCompatibility;
+import org.mvplugins.multiverse.core.utils.scheduler.MVScheduler;
 import org.mvplugins.multiverse.core.world.LoadedMultiverseWorld;
 import org.mvplugins.multiverse.core.world.MultiverseWorld;
 
@@ -69,7 +70,8 @@ public interface DataStore<T> {
             if (gameRuleMap == null) {
                 return this;
             }
-            world.getBukkitWorld().peek(bukkitWorld -> {
+            // Game rules are server-wide state, so they may only be changed on the global region.
+            world.getBukkitWorld().peek(bukkitWorld -> MVScheduler.onGlobalRegion(() -> {
                 for (String gameRule : bukkitWorld.getGameRules()) {
                     GameRule<?> gameRuleEnum = GameRule.getByName(gameRule);
                     if (gameRuleEnum == null) {
@@ -80,7 +82,7 @@ public interface DataStore<T> {
                         e.printStackTrace();
                     });
                 }
-            });
+            }));
             return this;
         }
 
@@ -161,13 +163,13 @@ public interface DataStore<T> {
         public WorldBorderStore pasteTo(LoadedMultiverseWorld world) {
             world.getBukkitWorld()
                     .map(World::getWorldBorder)
-                    .peek(worldBorder -> {
+                    .peek(worldBorder -> MVScheduler.onGlobalRegion(() -> {
                         worldBorder.setCenter(borderCenterX, borderCenterZ);
                         worldBorder.setDamageAmount(borderDamageAmount);
                         worldBorder.setDamageBuffer(borderDamageBuffer);
                         worldBorder.setSize(borderSize);
                         WorldBorderCompatibility.setWarningTimeTicks(worldBorder, borderTimeRemaining);
-                    });
+                    }));
             return this;
         }
     }

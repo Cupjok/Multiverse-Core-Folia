@@ -23,6 +23,7 @@ import org.mvplugins.multiverse.core.destination.DestinationsProvider;
 import org.mvplugins.multiverse.core.destination.core.WorldDestination;
 import org.mvplugins.multiverse.core.locale.MVCorei18n;
 import org.mvplugins.multiverse.core.locale.message.MessageReplacement.Replace;
+import org.mvplugins.multiverse.core.utils.WorldTickDeferrer;
 import org.mvplugins.multiverse.core.utils.result.AsyncAttemptsAggregate;
 import org.mvplugins.multiverse.core.world.MultiverseWorld;
 import org.mvplugins.multiverse.core.world.WorldManager;
@@ -36,16 +37,19 @@ class RemoveCommand extends CoreCommand {
 
     private final WorldManager worldManager;
     private final PlayerWorldTeleporter playerWorldTeleporter;
+    private final WorldTickDeferrer worldTickDeferrer;
     private final Flags flags;
 
     @Inject
     RemoveCommand(
             @NotNull WorldManager worldManager,
             @NotNull PlayerWorldTeleporter playerWorldTeleporter,
+            @NotNull WorldTickDeferrer worldTickDeferrer,
             @NotNull Flags flags
     ) {
         this.worldManager = worldManager;
         this.playerWorldTeleporter = playerWorldTeleporter;
+        this.worldTickDeferrer = worldTickDeferrer;
         this.flags = flags;
     }
 
@@ -74,7 +78,7 @@ class RemoveCommand extends CoreCommand {
                   .getOrElse(AsyncAttemptsAggregate::emptySuccess)
                 : AsyncAttemptsAggregate.emptySuccess();
 
-        future.onSuccess(() -> doWorldRemoving(issuer, world, parsedFlags))
+        future.onSuccess(() -> worldTickDeferrer.deferWorldTick(() -> doWorldRemoving(issuer, world, parsedFlags)))
                 .onFailure(() -> issuer.sendError(MVCorei18n.GENERIC_TELEPORTPLAYERS_FAILED));
     }
 
@@ -121,9 +125,10 @@ class RemoveCommand extends CoreCommand {
         LegacyAlias(
                 @NotNull WorldManager worldManager,
                 @NotNull PlayerWorldTeleporter playerWorldTeleporter,
+                @NotNull WorldTickDeferrer worldTickDeferrer,
                 @NotNull Flags flags
         ) {
-            super(worldManager, playerWorldTeleporter, flags);
+            super(worldManager, playerWorldTeleporter, worldTickDeferrer, flags);
         }
 
         @Override

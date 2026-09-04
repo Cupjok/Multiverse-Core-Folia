@@ -2,7 +2,6 @@ package org.mvplugins.multiverse.core.teleportation;
 
 import co.aikar.commands.BukkitCommandIssuer;
 import com.dumptruckman.minecraft.util.Logging;
-import io.papermc.lib.PaperLib;
 import io.vavr.control.Either;
 import io.vavr.control.Try;
 import org.bukkit.Bukkit;
@@ -19,9 +18,12 @@ import org.mvplugins.multiverse.core.destination.DestinationInstance;
 import org.mvplugins.multiverse.core.event.MVTeleportDestinationEvent;
 import org.mvplugins.multiverse.core.utils.result.AsyncAttempt;
 import org.mvplugins.multiverse.core.utils.result.AsyncAttemptsAggregate;
+import org.mvplugins.multiverse.core.utils.compatibility.EntityTeleportCompatibility;
 import org.mvplugins.multiverse.core.utils.result.Attempt;
+import org.mvplugins.multiverse.core.utils.scheduler.MVScheduler;
 
 import java.util.ArrayList;
+import java.util.concurrent.CompletableFuture;
 import java.util.List;
 
 /**
@@ -34,6 +36,7 @@ public final class AsyncSafetyTeleporterAction {
     private final BlockSafety blockSafety;
     private final TeleportQueue teleportQueue;
     private final PluginManager pluginManager;
+    private final MVScheduler scheduler;
 
     private final @NotNull Either<Location, DestinationInstance<?, ?>> locationOrDestination;
     private boolean checkSafety;
@@ -45,11 +48,13 @@ public final class AsyncSafetyTeleporterAction {
             @NotNull BlockSafety blockSafety,
             @NotNull TeleportQueue teleportQueue,
             @NotNull PluginManager pluginManager,
+            @NotNull MVScheduler scheduler,
             @NotNull Either<Location, DestinationInstance<?, ?>> locationOrDestination) {
         this.multiverseCore = multiverseCore;
         this.blockSafety = blockSafety;
         this.teleportQueue = teleportQueue;
         this.pluginManager = pluginManager;
+        this.scheduler = scheduler;
         this.locationOrDestination = locationOrDestination;
         this.checkSafety = locationOrDestination.fold(
                 location -> true,
@@ -124,16 +129,58 @@ public final class AsyncSafetyTeleporterAction {
      */
     @ApiStatus.AvailableSince("5.1")
     public AsyncAttemptsAggregate<Void, TeleportFailureReason> teleportSingle(@NotNull Entity teleportee) {
+        // Resolving the destination reads the entity, so it stays on the caller's thread, which is
+        // the one that owns the entity.
+        Attempt<Location, TeleportFailureReason> location = getLocation(teleportee);
+        if (location.isFailure() || !needsOffTickSafetyCheck()) {
+            return finishTeleport(teleportee, location.mapAttempt(this::doSafetyCheck));
+        }
+
+        // The safety check reads blocks at the destination, which only the region owning them may
+        // do. A ticking thread can neither do that itself nor wait for the region that can, so the
+        // check moves off-tick - and the teleport then returns to the entity's own thread, since
+        // dismounting and remounting reads entity state.
+        CompletableFuture<AsyncAttemptsAggregate<Void, TeleportFailureReason>> deferred =
+                new CompletableFuture<>();
+        scheduler.runAsync(() -> {
+            Attempt<Location, TeleportFailureReason> safeLocation = location.mapAttempt(this::doSafetyCheck);
+            scheduler.runAtEntity(teleportee, () -> {
+                try {
+                    deferred.complete(finishTeleport(teleportee, safeLocation));
+                } catch (Throwable throwable) {
+                    deferred.completeExceptionally(throwable);
+                }
+            });
+        });
+        return AsyncAttemptsAggregate.ofFuture(deferred);
+    }
+
+    /**
+     * Whether this teleport has to leave the server's ticking threads before it can check whether
+     * the destination is safe.
+     */
+    private boolean needsOffTickSafetyCheck() {
+        return MVScheduler.isFolia()
+                && this.checkSafety
+                && Bukkit.isPrimaryThread()
+                && !scheduler.isStartupPhase();
+    }
+
+    /**
+     * Performs the teleport itself. Must run on the thread that owns the teleported entity.
+     */
+    private AsyncAttemptsAggregate<Void, TeleportFailureReason> finishTeleport(
+            @NotNull Entity teleportee, @NotNull Attempt<Location, TeleportFailureReason> location) {
         var localTeleporter = this.teleporter == null ? teleportee : this.teleporter;
 
-        return getLocation(teleportee).mapAttempt(this::doSafetyCheck)
+        return location
                 .onSuccess(() -> {
                     if (teleportee instanceof Player player) {
                         this.teleportQueue.addToQueue(localTeleporter, player);
                     }
                 })
                 .transform(
-                        location -> doAsyncTeleport(teleportee, location),
+                        safeLocation -> doAsyncTeleport(teleportee, safeLocation),
                         failure -> AsyncAttemptsAggregate.allOf(AsyncAttempt.failure(failure))
                 )
                 .thenRun(() -> {
@@ -155,7 +202,13 @@ public final class AsyncSafetyTeleporterAction {
     @Deprecated(forRemoval = true, since = "5.1")
     @ApiStatus.ScheduledForRemoval(inVersion = "6.0")
     public AsyncAttempt<Void, TeleportFailureReason> teleport(@NotNull Entity teleportee) {
-        return teleportSingle(teleportee).getAttempts().get(0);
+        var attempts = teleportSingle(teleportee).getAttempts();
+        if (attempts.isEmpty()) {
+            // The teleport was deferred off-tick, so there is no individual attempt to hand back.
+            // Callers that need the outcome should use teleportSingle instead.
+            return AsyncAttempt.success();
+        }
+        return attempts.get(0);
     }
 
     private Attempt<Location, TeleportFailureReason> getLocation(@NotNull Entity teleportee) {
@@ -244,7 +297,7 @@ public final class AsyncSafetyTeleporterAction {
         return AsyncAttemptsAggregate.allOfAggregate(toTeleport.stream()
                         .map(passenger -> doAsyncTeleport(passenger, location))
                         .toList())
-                .onSuccess(() -> Bukkit.getScheduler().runTask(multiverseCore, () -> {
+                .onSuccess(() -> scheduler.runAtEntity(teleportee, () -> {
                     passengers.forEach(teleportee::addPassenger);
                     Logging.finer("Mounted %d passengers to %s", passengers.size(), teleportee.getName());
                 }));
@@ -254,7 +307,7 @@ public final class AsyncSafetyTeleporterAction {
             @NotNull Entity teleportee,
             @NotNull Location location
     ) {
-        return AsyncAttempt.of(PaperLib.teleportAsync(teleportee, location), exception -> {
+        return AsyncAttempt.of(EntityTeleportCompatibility.teleportAsync(teleportee, location), exception -> {
             Logging.warning("Failed to teleport %s to %s: %s",
                     teleportee.getName(), location, exception.getMessage());
             return Attempt.failure(TeleportFailureReason.TELEPORT_FAILED_EXCEPTION);
@@ -272,6 +325,6 @@ public final class AsyncSafetyTeleporterAction {
     private void applyPostTeleportVelocity(@NotNull Entity teleportee) {
         locationOrDestination.peek(destination ->
                 destination.getVelocity(teleportee).peek(velocity ->
-                        Bukkit.getScheduler().runTaskLater(multiverseCore, () -> teleportee.setVelocity(velocity), 1L)));
+                        scheduler.runAtEntityLater(teleportee, () -> teleportee.setVelocity(velocity), 1L)));
     }
 }

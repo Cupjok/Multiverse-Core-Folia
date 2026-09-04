@@ -7,12 +7,15 @@ import co.aikar.commands.annotation.Optional;
 import co.aikar.commands.annotation.Subcommand;
 import co.aikar.commands.annotation.Syntax;
 import io.vavr.control.Try;
+import jakarta.inject.Inject;
 import org.bukkit.WorldBorder;
+import org.jetbrains.annotations.NotNull;
 import org.jvnet.hk2.annotations.Service;
 import org.mvplugins.multiverse.core.command.MVCommandIssuer;
 import org.mvplugins.multiverse.core.locale.MVCorei18n;
 import org.mvplugins.multiverse.core.locale.message.MessageReplacement.Replace;
 import org.mvplugins.multiverse.core.utils.compatibility.WorldBorderCompatibility;
+import org.mvplugins.multiverse.core.utils.scheduler.MVScheduler;
 import org.mvplugins.multiverse.core.utils.tick.TickDuration;
 import org.mvplugins.multiverse.core.world.LoadedMultiverseWorld;
 
@@ -25,6 +28,13 @@ import static org.mvplugins.multiverse.core.locale.message.MessageReplacement.re
 @Subcommand("worldborder")
 @CommandPermission("multiverse.core.worldborder")
 final class WorldBorderCommand extends CoreCommand {
+
+    private final MVScheduler scheduler;
+
+    @Inject
+    WorldBorderCommand(@NotNull MVScheduler scheduler) {
+        this.scheduler = scheduler;
+    }
 
     @Subcommand("add")
     void onWorldBorderAdd(
@@ -235,7 +245,8 @@ final class WorldBorderCommand extends CoreCommand {
     }
 
     private void worldBorderAction(MVCommandIssuer issuer, LoadedMultiverseWorld world, Consumer<WorldBorder> worldBorderAction) {
-        Try.run(() -> world.getWorldBorder().peek(worldBorderAction))
-                .onFailure(error -> issuer.sendError(MVCorei18n.GENERIC_ERROR_DETAILS, Replace.ERROR.with(error)));
+        // A world border is server-wide state, so it may only be changed on the global region.
+        scheduler.runGlobal(() -> Try.run(() -> world.getWorldBorder().peek(worldBorderAction))
+                .onFailure(error -> issuer.sendError(MVCorei18n.GENERIC_ERROR_DETAILS, Replace.ERROR.with(error))));
     }
 }

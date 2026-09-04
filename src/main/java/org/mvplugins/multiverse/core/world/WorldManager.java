@@ -7,8 +7,12 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import com.dumptruckman.minecraft.util.Logging;
@@ -24,6 +28,7 @@ import org.bukkit.World;
 import org.bukkit.WorldBorder;
 import org.bukkit.WorldCreator;
 import org.bukkit.WorldType;
+import org.bukkit.event.Event;
 import org.bukkit.plugin.PluginManager;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
@@ -51,8 +56,10 @@ import org.mvplugins.multiverse.core.utils.ServerProperties;
 import org.mvplugins.multiverse.core.utils.compatibility.BukkitCompatibility;
 import org.mvplugins.multiverse.core.utils.compatibility.WorldCompatibility;
 import org.mvplugins.multiverse.core.utils.compatibility.WorldCreatorCompatibility;
+import org.mvplugins.multiverse.core.utils.compatibility.WorldUnloadCompatibility;
 import org.mvplugins.multiverse.core.utils.result.Attempt;
 import org.mvplugins.multiverse.core.utils.result.FailureReason;
+import org.mvplugins.multiverse.core.utils.scheduler.MVScheduler;
 import org.mvplugins.multiverse.core.utils.FileUtils;
 import org.mvplugins.multiverse.core.utils.text.ChatTextFormatter;
 import org.mvplugins.multiverse.core.world.biomeprovider.BiomeProviderFactory;
@@ -97,6 +104,11 @@ public final class WorldManager {
     );
 
     private final WorldStore worldStore;
+    private static final long GLOBAL_TASK_TIMEOUT_SECONDS = 30L;
+    private static final long WORLD_CREATE_TIMEOUT_SECONDS = 300L;
+    private static final long WORLD_UNLOAD_TIMEOUT_SECONDS = 120L;
+    private static final long WORLD_SAVE_TIMEOUT_SECONDS = 120L;
+
     private final List<String> unloadTracker;
     private final List<String> loadTracker;
     private final WorldsConfigManager worldsConfigManager;
@@ -112,6 +124,7 @@ public final class WorldManager {
     private final CoreConfig config;
     private final EntityPurger entityPurger;
     private final Provider<PotentialWorldFinder> potentialWorldFinder;
+    private final MVScheduler scheduler;
 
     @Inject
     WorldManager(
@@ -128,7 +141,8 @@ public final class WorldManager {
             @NotNull ServerProperties serverProperties,
             @NotNull CoreConfig config,
             @NotNull EntityPurger entityPurger,
-            @NotNull Provider<PotentialWorldFinder> potentialWorldFinder) {
+            @NotNull Provider<PotentialWorldFinder> potentialWorldFinder,
+            @NotNull MVScheduler scheduler) {
         this.worldStore = worldStore;
         this.worldsConfigManager = worldsConfigManager;
         this.worldNameChecker = worldNameChecker;
@@ -143,6 +157,7 @@ public final class WorldManager {
         this.config = config;
         this.entityPurger = entityPurger;
         this.potentialWorldFinder = potentialWorldFinder;
+        this.scheduler = scheduler;
 
         this.unloadTracker = new ArrayList<>();
         this.loadTracker = new ArrayList<>();
@@ -321,7 +336,7 @@ public final class WorldManager {
                 .setPropertyString(key, value)
                 .onFailure(failure -> Logging.warning("Failed to set property '%s' to '%s' for world %s: %s",
                         key, value, loadedWorld.getName(), failure.getMessage())));
-        pluginManager.callEvent(new MVWorldCreatedEvent(loadedWorld));
+        callEvent(new MVWorldCreatedEvent(loadedWorld));
         saveWorldsConfig();
     }
 
@@ -390,7 +405,7 @@ public final class WorldManager {
                         options.biome(),
                         options.generatorSettings(),
                         options.useSpawnAdjust()))
-                .peek(loadedWorld -> pluginManager.callEvent(new MVWorldImportedEvent(loadedWorld)));
+                .peek(loadedWorld -> callEvent(new MVWorldImportedEvent(loadedWorld)));
     }
 
     private Attempt<LoadedMultiverseWorld, ImportFailureReason> doImportBukkitWorld(
@@ -412,7 +427,7 @@ public final class WorldManager {
                 options.biome(),
                 options.generatorSettings(),
                 options.useSpawnAdjust());
-        pluginManager.callEvent(new MVWorldImportedEvent(loadedWorld));
+        callEvent(new MVWorldImportedEvent(loadedWorld));
         return Attempt.success(loadedWorld);
     }
 
@@ -463,7 +478,7 @@ public final class WorldManager {
         );
         worldStore.putLoadedWorld(loadedWorld);
         saveWorldsConfig();
-        pluginManager.callEvent(new MVWorldLoadedEvent(loadedWorld));
+        callEvent(new MVWorldLoadedEvent(loadedWorld));
         return loadedWorld;
     }
 
@@ -599,7 +614,7 @@ public final class WorldManager {
         );
         worldStore.putLoadedWorld(loadedWorld);
         saveWorldsConfig();
-        pluginManager.callEvent(new MVWorldLoadedEvent(loadedWorld));
+        callEvent(new MVWorldLoadedEvent(loadedWorld));
         return Attempt.success(loadedWorld);
     }
 
@@ -636,7 +651,7 @@ public final class WorldManager {
                 () -> new IllegalStateException("Unloaded ref of world not found: " + mvWorld));
         worldStore.removeLoadedWorld(mvWorld);
         mvWorld.getWorldConfig().setMVWorld(unloadedWorld);
-        pluginManager.callEvent(new MVWorldUnloadedEvent(mvWorld));
+        callEvent(new MVWorldUnloadedEvent(mvWorld));
         return worldActionResult(unloadedWorld);
     }
 
@@ -733,7 +748,7 @@ public final class WorldManager {
 
         corePermissions.removeWorldPermissions(world);
 
-        pluginManager.callEvent(new MVWorldRemovedEvent(world));
+        callEvent(new MVWorldRemovedEvent(world));
         return worldActionResult(world.getName());
     }
 
@@ -770,7 +785,7 @@ public final class WorldManager {
                 .peek(worldFolder::set)
                 .mapAttempt(() -> {
                     MVWorldDeleteEvent event = new MVWorldDeleteEvent(world);
-                    pluginManager.callEvent(event);
+                    callEvent(event);
                     return event.isCancelled()
                             ? Attempt.failure(DeleteFailureReason.EVENT_CANCELLED)
                             : Attempt.success(null);
@@ -822,7 +837,7 @@ public final class WorldManager {
                         newWorld.setSpawnLocation(options.fromWorld().getSpawnLocation());
                     }
                     saveWorldsConfig();
-                    pluginManager.callEvent(new MVWorldClonedEvent(newWorld, options.fromWorld()));
+                    callEvent(new MVWorldClonedEvent(newWorld, options.fromWorld()));
                 });
     }
 
@@ -854,7 +869,12 @@ public final class WorldManager {
         if (options.saveBukkitWorld()) {
             options.fromWorld().asLoadedWorld().peek(loadedWorld -> {
                 Logging.finer("Saving world before cloning: " + loadedWorld.getName());
-                loadedWorld.getBukkitWorld().peek(bukkitWorld -> WorldCompatibility.saveWithFlush(bukkitWorld, true));
+                loadedWorld.getBukkitWorld().peek(bukkitWorld -> awaitGlobal(() -> {
+                    // Saving a world is only legal on a tick thread, and this runs off-tick so
+                    // that the unload it may be followed by can wait without deadlocking.
+                    WorldCompatibility.saveWithFlush(bukkitWorld, true);
+                    return null;
+                }, "save world '" + loadedWorld.getName() + "' before cloning", WORLD_SAVE_TIMEOUT_SECONDS));
             });
         }
         File worldFolder = WorldFolderResolver.resolve(options.fromWorld());
@@ -872,7 +892,9 @@ public final class WorldManager {
                     .pasteAllTo(newWorld);
         }
 
-        newWorld.getBukkitWorld().peek(bukkitWorld -> {
+        // World borders and game rules are server-wide state, so they may only be changed on the
+        // global region - and this runs off-tick as part of the clone/regen flow.
+        newWorld.getBukkitWorld().peek(bukkitWorld -> scheduler.runGlobal(() -> {
             if (!options.keepWorldBorder()) {
                 WorldBorder worldBorder = bukkitWorld.getWorldBorder();
                 worldBorder.reset();
@@ -889,7 +911,7 @@ public final class WorldManager {
                             }
                         });
             }
-        });
+        }));
     }
 
     /**
@@ -926,7 +948,7 @@ public final class WorldManager {
                         newWorld.setSpawnLocation(spawnLocation);
                     }
                     saveWorldsConfig();
-                    pluginManager.callEvent(new MVWorldRegeneratedEvent(newWorld));
+                    callEvent(new MVWorldRegeneratedEvent(newWorld));
                 });
     }
 
@@ -1000,7 +1022,8 @@ public final class WorldManager {
     private Attempt<World, WorldCreatorFailureReason> createBukkitWorld(WorldCreator worldCreator) {
         return Try.of(() -> {
             this.loadTracker.add(worldCreator.name());
-            World world = worldCreator.createWorld();
+            World world = awaitGlobal(worldCreator::createWorld,
+                    "create world '" + worldCreator.name() + "'", WORLD_CREATE_TIMEOUT_SECONDS);
             if (world == null) {
                 throw new MultiverseWorldException(Message.of(MVCorei18n.EXCEPTION_MULTIVERSEWORLD_CREATENULL));
             }
@@ -1029,11 +1052,90 @@ public final class WorldManager {
                 return;
             }
             unloadTracker.add(world.getName());
-            if (!Bukkit.unloadWorld(world, save)) {
+            WorldUnloadCompatibility.Result result = awaitWorldUnload(world, save);
+            if (!result.success()) {
+                Logging.fine("Bukkit refused to unload world '%s': %s", world.getName(), result.reason());
                 throwUnloadException(world);
             }
             Logging.fine("Bukkit unloaded world: " + world.getName());
         }).andFinally(() -> unloadTracker.remove(world.getName()));
+    }
+
+    /**
+     * Unloads a Bukkit world and waits for it to actually be gone.
+     *
+     * <p>On a regionised server the unload is started on the global region and then runs on a
+     * server-owned teardown thread, so this waits on the calling thread instead. That calling
+     * thread must not be the global region thread: the teardown failure path needs the global
+     * region to make progress, so blocking it here would deadlock the server.</p>
+     */
+    private WorldUnloadCompatibility.Result awaitWorldUnload(@NotNull World world, boolean save)
+            throws MultiverseWorldException {
+        if (!WorldUnloadCompatibility.isAsyncUnloadSupported()) {
+            return awaitGlobal(() -> WorldUnloadCompatibility.unloadWorld(world, save).join(),
+                    "unload world '" + world.getName() + "'", WORLD_UNLOAD_TIMEOUT_SECONDS);
+        }
+        if (scheduler.isGlobalThread()) {
+            Logging.severe("Refusing to unload world '%s' from the global region thread, as waiting for the "
+                    + "unload to finish there would deadlock the server. Run this off the global region.",
+                    world.getName());
+            throw new MultiverseWorldException(Message.of(MVCorei18n.EXCEPTION_MULTIVERSEWORLD_UNLOADERROR));
+        }
+        CompletableFuture<WorldUnloadCompatibility.Result> unloaded = scheduler
+                .supplyGlobal(() -> WorldUnloadCompatibility.unloadWorld(world, save))
+                .thenCompose(Function.identity());
+        return awaitFuture(unloaded, "unload world '" + world.getName() + "'", WORLD_UNLOAD_TIMEOUT_SECONDS);
+    }
+
+    /**
+     * Runs a computation that needs server-wide state, on the global region when the calling
+     * thread does not already own it.
+     */
+    private <T> T awaitGlobal(@NotNull Supplier<T> supplier, @NotNull String description, long timeoutSeconds) {
+        if (scheduler.isGlobalThread() || scheduler.isStartupPhase()) {
+            // A starting server is still single threaded and permits world work inline. It also
+            // has not begun draining the global region scheduler, so handing this over would
+            // simply never run.
+            return supplier.get();
+        }
+        return awaitFuture(scheduler.supplyGlobal(supplier), description, timeoutSeconds);
+    }
+
+    private <T> T awaitFuture(
+            @NotNull CompletableFuture<T> future, @NotNull String description, long timeoutSeconds) {
+        try {
+            return future.get(timeoutSeconds, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while waiting to " + description, e);
+        } catch (TimeoutException e) {
+            throw new IllegalStateException(
+                    "Timed out after " + timeoutSeconds + "s waiting to " + description, e);
+        } catch (java.util.concurrent.ExecutionException e) {
+            Throwable cause = e.getCause() == null ? e : e.getCause();
+            if (cause instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            throw new IllegalStateException("Failed to " + description, cause);
+        }
+    }
+
+    /**
+     * Dispatches a Bukkit event, hopping onto the global region first when the calling thread is
+     * not one the server allows events to be fired from.
+     *
+     * <p>This blocks until the event has been dispatched, so callers may still inspect a
+     * cancellable event afterwards.</p>
+     */
+    private void callEvent(@NotNull Event event) {
+        if (Bukkit.isPrimaryThread() || scheduler.isStartupPhase()) {
+            pluginManager.callEvent(event);
+            return;
+        }
+        awaitGlobal(() -> {
+            pluginManager.callEvent(event);
+            return null;
+        }, "dispatch " + event.getEventName(), GLOBAL_TASK_TIMEOUT_SECONDS);
     }
 
     private void throwUnloadException(World world) throws MultiverseWorldException {

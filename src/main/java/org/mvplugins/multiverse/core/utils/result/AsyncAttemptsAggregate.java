@@ -88,6 +88,30 @@ public final class AsyncAttemptsAggregate<T, F extends FailureReason> {
         );
     }
 
+    /**
+     * Creates an {@link AsyncAttemptsAggregate} for work that has not been started yet.
+     *
+     * <p>Used when the attempts can only be made on a different thread, so there is nothing to
+     * aggregate at the point the caller needs a result object back. Every callback registered on
+     * the returned aggregate fires once the deferred work completes. Note that
+     * {@link #getAttempts()} is empty for such an aggregate, because the individual attempts do
+     * not exist yet.</p>
+     *
+     * @param future    A future completed with the aggregate once the work has been started.
+     * @param <T>       The type of the successful result.
+     * @param <F>       The type representing failure reasons.
+     * @return An instance of {@link AsyncAttemptsAggregate}.
+     *
+     * @since 5.3
+     */
+    @ApiStatus.AvailableSince("5.3")
+    public static <T, F extends FailureReason> AsyncAttemptsAggregate<T, F> ofFuture(
+            CompletableFuture<AsyncAttemptsAggregate<T, F>> future) {
+        return new AsyncAttemptsAggregate<>(
+                Collections.emptyList(),
+                future.thenCompose(aggregate -> aggregate.future));
+    }
+
     private final List<AsyncAttempt<T, F>> attempts;
     private final CompletableFuture<AttemptsAggregate<T, F>> future;
 

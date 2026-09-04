@@ -45,6 +45,7 @@ import org.mvplugins.multiverse.core.teleportation.AsyncSafetyTeleporter;
 import org.mvplugins.multiverse.core.teleportation.BlockSafety;
 import org.mvplugins.multiverse.core.teleportation.TeleportQueue;
 import org.mvplugins.multiverse.core.utils.result.ResultChain;
+import org.mvplugins.multiverse.core.utils.scheduler.MVScheduler;
 import org.mvplugins.multiverse.core.world.LoadedMultiverseWorld;
 import org.mvplugins.multiverse.core.world.MultiverseWorld;
 import org.mvplugins.multiverse.core.world.WorldManager;
@@ -72,6 +73,7 @@ final class MVPlayerListener implements CoreListener {
     private final DimensionFinder dimensionFinder;
     private final CorePermissionsChecker corePermissionsChecker;
     private final AsyncSafetyTeleporter asyncSafetyTeleporter;
+    private final MVScheduler scheduler;
 
     @Inject
     MVPlayerListener(
@@ -88,7 +90,8 @@ final class MVPlayerListener implements CoreListener {
             EnforcementHandler enforcementHandler,
             DimensionFinder dimensionFinder,
             CorePermissionsChecker corePermissionsChecker,
-            AsyncSafetyTeleporter asyncSafetyTeleporter) {
+            AsyncSafetyTeleporter asyncSafetyTeleporter,
+            MVScheduler scheduler) {
         this.plugin = plugin;
         this.config = config;
         this.worldManagerProvider = worldManagerProvider;
@@ -103,6 +106,7 @@ final class MVPlayerListener implements CoreListener {
         this.dimensionFinder = dimensionFinder;
         this.corePermissionsChecker = corePermissionsChecker;
         this.asyncSafetyTeleporter = asyncSafetyTeleporter;
+        this.scheduler = scheduler;
     }
 
     private WorldManager getWorldManager() {
@@ -432,8 +436,8 @@ final class MVPlayerListener implements CoreListener {
             doGameModeAndFlightEnforcement(player, world);
             return;
         }
-        server.getScheduler().runTaskLater(
-                this.plugin,
+        scheduler.runAtEntityLater(
+                player,
                 () -> doGameModeAndFlightEnforcement(player, world),
                 config.getGamemodeAndFlightEnforceDelay()
         );

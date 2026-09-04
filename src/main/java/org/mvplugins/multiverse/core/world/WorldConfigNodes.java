@@ -31,6 +31,7 @@ import org.mvplugins.multiverse.core.utils.text.ChatTextFormatter;
 import org.mvplugins.multiverse.core.world.helpers.AliasNameConflictChecker;
 import org.mvplugins.multiverse.core.world.helpers.EnforcementHandler;
 import org.mvplugins.multiverse.core.world.key.WorldKeyOrName;
+import org.mvplugins.multiverse.core.utils.scheduler.MVScheduler;
 import org.mvplugins.multiverse.core.world.location.NullSpawnLocation;
 import org.mvplugins.multiverse.core.world.location.SpawnLocation;
 import org.mvplugins.multiverse.core.world.entity.EntitySpawnConfig;
@@ -127,12 +128,12 @@ final class WorldConfigNodes {
             .defaultValue(true)
             .onLoadAndChange((oldValue, newValue) -> {
                 if (!(world instanceof LoadedMultiverseWorld loadedWorld)) return;
-                loadedWorld.getBukkitWorld().peek(world -> {
+                loadedWorld.getBukkitWorld().peek(world -> MVScheduler.onGlobalRegion(() -> {
                     if (!world.isClearWeather() && !newValue) {
                         world.setThundering(false);
                         world.setStorm(false);
                     }
-                });
+                }));
             }));
 
     final ConfigNode<Boolean> anchorRespawn = node(ConfigNode.builder("anchor-respawn", Boolean.class)
@@ -155,7 +156,8 @@ final class WorldConfigNodes {
             .defaultValue(Difficulty.NORMAL)
             .onLoadAndChange((oldValue, newValue) -> {
                 if (!(world instanceof LoadedMultiverseWorld loadedWorld)) return;
-                loadedWorld.getBukkitWorld().peek(bukkitWorld -> bukkitWorld.setDifficulty(newValue));
+                loadedWorld.getBukkitWorld().peek(bukkitWorld ->
+                        MVScheduler.onGlobalRegion(() -> bukkitWorld.setDifficulty(newValue)));
             }));
 
     final ConfigNode<Boolean> entryFeeEnabled = node(ConfigNode.builder("entry-fee.enabled", Boolean.class)
@@ -216,13 +218,13 @@ final class WorldConfigNodes {
             .defaultValue(true)
             .onLoadAndChange((sender, oldValue, newValue) -> {
                 if (!(world instanceof LoadedMultiverseWorld loadedWorld)) return;
-                loadedWorld.getBukkitWorld().peek(bukkitWorld -> {
+                loadedWorld.getBukkitWorld().peek(bukkitWorld -> MVScheduler.onGlobalRegion(() -> {
                     bukkitWorld.setKeepSpawnInMemory(newValue);
                     if (bukkitWorld.getKeepSpawnInMemory() != newValue) {
                         sender.sendMessage(ChatColor.RED + "Keep spawn in memory feature has been removed by " +
                                 "Minecraft in 1.21.9+ and will no longer have any effect when set to true.");
                     }
-                });
+                }));
             }));
 
     final MapConfigNode<String, String> meta = (MapConfigNode<String, String>) node(MapConfigNode
@@ -240,7 +242,8 @@ final class WorldConfigNodes {
             .defaultValue(true)
             .onLoadAndChange((oldValue, newValue) -> {
                 if (!(world instanceof LoadedMultiverseWorld loadedWorld)) return;
-                loadedWorld.getBukkitWorld().peek(bukkitWorld -> bukkitWorld.setPVP(newValue));
+                loadedWorld.getBukkitWorld().peek(bukkitWorld ->
+                        MVScheduler.onGlobalRegion(() -> bukkitWorld.setPVP(newValue)));
             }));
 
     final ConfigNode<String> respawnWorld = node(ConfigNode.builder("respawn-world", String.class)
@@ -266,10 +269,10 @@ final class WorldConfigNodes {
             .onLoadAndChange((oldValue, newValue) -> {
                 if (!(world instanceof LoadedMultiverseWorld loadedWorld)) return;
                 if (newValue == null || newValue instanceof NullSpawnLocation) return;
-                loadedWorld.getBukkitWorld().peek(bukkitWorld -> {
+                loadedWorld.getBukkitWorld().peek(bukkitWorld -> MVScheduler.onGlobalRegion(() -> {
                     newValue.setWorld(bukkitWorld);
                     bukkitWorld.setSpawnLocation(newValue);
-                });
+                }));
             }));
 
     final ConfigNode<EntitySpawnConfig> enititySpawnConfig = node(ConfigNode.builder("spawning", EntitySpawnConfig.class)
